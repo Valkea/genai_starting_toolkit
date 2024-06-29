@@ -1,2 +1,2 @@
-azure-cognitiveservices-speech
-python-dotenv
+azure-cognitiveservices-speech==1.38.0
+python-dotenv==1.0.1

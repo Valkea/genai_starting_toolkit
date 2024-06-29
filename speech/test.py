@@ -2,27 +2,51 @@ import os
 import time
 import azure.cognitiveservices.speech as speechsdk
 
-from dotenv import load_dotenv, dotenv_values 
+from dotenv import load_dotenv, dotenv_values
+
 # loading variables from .env file
-load_dotenv() 
- 
+load_dotenv()
+
+speakers_history = ["Guest-1", "Guest-2"]
+
 
 def conversation_transcriber_recognition_canceled_cb(evt: speechsdk.SessionEventArgs):
-    print('Canceled event')
+    print("Canceled event")
+
 
 def conversation_transcriber_session_stopped_cb(evt: speechsdk.SessionEventArgs):
-    print('SessionStopped event')
+    print("SessionStopped event")
+
 
 def conversation_transcriber_transcribed_cb(evt: speechsdk.SpeechRecognitionEventArgs):
-    print('TRANSCRIBED:')
+    print("TRANSCRIBED:")
+
     if evt.result.reason == speechsdk.ResultReason.RecognizedSpeech:
-        print('\tText={}'.format(evt.result.text))
-        print('\tSpeaker ID={}'.format(evt.result.speaker_id))
+
+        speaker = evt.result.speaker_id
+        text = evt.result.text
+        line = f"{speaker}: {text}"
+        print(line)
+
+        global speakers_history, transcript
+
+        if speaker == "Unknown":
+            speaker = speakers_history[-2]
+
+        speakers_history.append(speaker)
+
+        linet = f"{speaker}: {text}"
+        transcript += linet + "\n"
+
     elif evt.result.reason == speechsdk.ResultReason.NoMatch:
-        print('\tNOMATCH: Speech could not be TRANSCRIBED: {}'.format(evt.result.no_match_details))
+        print(
+            f"\tNOMATCH: Speech could not be TRANSCRIBED: {evt.result.no_match_details}"
+        )
+
 
 def conversation_transcriber_session_started_cb(evt: speechsdk.SessionEventArgs):
-    print('SessionStarted event')
+    print("SessionStarted event")
+
 
 class BinaryFileReaderCallback(speechsdk.audio.PullAudioInputStreamCallback):
     def __init__(self, filename: str):
@@ -34,53 +58,74 @@ class BinaryFileReaderCallback(speechsdk.audio.PullAudioInputStreamCallback):
             size = buffer.nbytes
             frames = self._file_h.read(size)
 
-            buffer[:len(frames)] = frames
+            buffer[: len(frames)] = frames
 
             return len(frames)
         except Exception as ex:
-            print('Exception in `read`: {}'.format(ex))
+            print("Exception in `read`: {}".format(ex))
             raise
 
     def close(self) -> None:
-        print('closing file')
+        print("closing file")
         try:
             self._file_h.close()
         except Exception as ex:
-            print('Exception in `close`: {}'.format(ex))
+            print("Exception in `close`: {}".format(ex))
             raise
+
 
 def recognize_from_file():
     # This example requires environment variables named "SPEECH_KEY" and "SPEECH_REGION"
-    speech_config = speechsdk.SpeechConfig(subscription=os.environ.get('SPEECH_KEY'), region=os.environ.get('SPEECH_REGION'))
-    speech_config.speech_recognition_language=os.environ.get('SPEECH_LANGUAGE')
+    speech_config = speechsdk.SpeechConfig(
+        subscription=os.environ.get("SPEECH_KEY"),
+        region=os.environ.get("SPEECH_REGION"),
+    )
+    speech_config.speech_recognition_language = os.environ.get("SPEECH_LANGUAGE")
 
     filename = "test.mp3"
-    print("==>", filename[-3:]) 
+    print("==>", filename[-3:])
     if filename[-3:] == "wav":
         # WAV
         audio_config = speechsdk.audio.AudioConfig(filename=filename)
     else:
         # Creates an audio stream format. MP3 ...
-        compressed_format = speechsdk.audio.AudioStreamFormat(compressed_stream_format=speechsdk.AudioStreamContainerFormat.MP3)
+        compressed_format = speechsdk.audio.AudioStreamFormat(
+            compressed_stream_format=speechsdk.AudioStreamContainerFormat.MP3
+        )
         callback = BinaryFileReaderCallback(filename=filename)
-        stream = speechsdk.audio.PullAudioInputStream(stream_format=compressed_format, pull_stream_callback=callback)
+        stream = speechsdk.audio.PullAudioInputStream(
+            stream_format=compressed_format, pull_stream_callback=callback
+        )
         audio_config = speechsdk.audio.AudioConfig(stream=stream)
 
-    conversation_transcriber = speechsdk.transcription.ConversationTranscriber(speech_config=speech_config, audio_config=audio_config)
+    conversation_transcriber = speechsdk.transcription.ConversationTranscriber(
+        speech_config=speech_config, audio_config=audio_config
+    )
 
     transcribing_stop = False
 
     def stop_cb(evt: speechsdk.SessionEventArgs):
-        #"""callback that signals to stop continuous recognition upon receiving an event `evt`"""
-        print('CLOSING on {}'.format(evt))
+        # """callback that signals to stop continuous recognition upon receiving an event `evt`"""
+        print("CLOSING on {}".format(evt))
         nonlocal transcribing_stop
         transcribing_stop = True
 
+    global transcript
+    transcript = ""
+
     # Connect callbacks to the events fired by the conversation transcriber
-    conversation_transcriber.transcribed.connect(conversation_transcriber_transcribed_cb)
-    conversation_transcriber.session_started.connect(conversation_transcriber_session_started_cb)
-    conversation_transcriber.session_stopped.connect(conversation_transcriber_session_stopped_cb)
-    conversation_transcriber.canceled.connect(conversation_transcriber_recognition_canceled_cb)
+    conversation_transcriber.transcribed.connect(
+        conversation_transcriber_transcribed_cb
+    )
+    conversation_transcriber.session_started.connect(
+        conversation_transcriber_session_started_cb
+    )
+    conversation_transcriber.session_stopped.connect(
+        conversation_transcriber_session_stopped_cb
+    )
+    conversation_transcriber.canceled.connect(
+        conversation_transcriber_recognition_canceled_cb
+    )
     # stop transcribing on either session stopped or canceled events
     conversation_transcriber.session_stopped.connect(stop_cb)
     conversation_transcriber.canceled.connect(stop_cb)
@@ -89,9 +134,12 @@ def recognize_from_file():
 
     # Waits for completion.
     while not transcribing_stop:
-        time.sleep(.5)
+        time.sleep(0.5)
 
     conversation_transcriber.stop_transcribing_async()
+
+    print("Final transcript:", transcript)
+
 
 # Main
 
